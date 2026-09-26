@@ -1,9 +1,10 @@
 # PoliBot
 
-A Discord bot that uses [DeepSeek](https://api-docs.deepseek.com/), or any OpenAI-compatible model, for two things:
+A Discord bot with three commands. The first two use [DeepSeek](https://api-docs.deepseek.com/), or any OpenAI-compatible model:
 
 - **`/summarize`** reads the last N messages in the current channel and privately (ephemerally) replies with a summary.
 - **`/dailynews`** posts the day's 3 biggest news stories to a chosen channel once a day.
+- **`/compass`** lets members save their [political compass](https://www.politicalcompass.org/test) coordinates to a Google Sheet, and posts a chart of everyone's.
 
 ```
 /summarize [count:1-500, default 50] [include_bots:true|false]
@@ -12,6 +13,11 @@ A Discord bot that uses [DeepSeek](https://api-docs.deepseek.com/), or any OpenA
 /dailynews now                                # post today's stories immediately
 /dailynews status
 /dailynews stop
+
+/compass set economic:-3.5 social:-2.1   # each from -10 to 10
+/compass plot                           # posts a chart of everyone in this server
+/compass show
+/compass remove
 ```
 
 `/dailynews` is limited to members with **Manage Server** by default. Server admins can change that under Server Settings → Integrations.
@@ -48,6 +54,25 @@ A Discord bot that uses [DeepSeek](https://api-docs.deepseek.com/), or any OpenA
    ```
    Re-run `npm run deploy-commands` whenever commands are added or changed, for example after pulling this branch.
 
+### Google Sheets setup (for `/compass`)
+
+The bot signs in to Google as a *service account*, a robot Google account that belongs to your project. It's free.
+
+1. Go to <https://console.cloud.google.com>, sign in, and create a project (top bar → project picker → **New Project**).
+2. **APIs & Services → Library**: search for **Google Sheets API** and click **Enable**.
+3. **IAM & Admin → Service Accounts → Create service account**. Any name works. Skip the optional role and access steps and click **Done**.
+4. Click the new service account, open **Keys → Add key → Create new key → JSON**. A `.json` file downloads.
+   - Save it in the project folder as `google-service-account.json`. It's git-ignored.
+   - The file is a secret, like the bot token. If it leaks, delete the key on the same page and make a new one.
+5. Create a Google Sheet (<https://sheets.new>). Click **Share**, paste the service account's email address (it ends in `.iam.gserviceaccount.com`), and give it **Editor** access.
+6. Put the sheet's ID in `.env`. It's the long part of the URL: `docs.google.com/spreadsheets/d/`**`THIS_PART`**`/edit`.
+   ```
+   GOOGLE_SHEET_ID=1AbC...xyz
+   GOOGLE_APPLICATION_CREDENTIALS=./google-service-account.json
+   ```
+
+The bot creates a **Compass** tab with a header row on first use. You can view or edit the data there. Rows with invalid values are skipped when plotting.
+
 ## How it works
 
 - `src/discord/fetchMessages.ts` pages backwards through channel history, 100 messages at a time (Discord's per-request limit).
@@ -63,6 +88,15 @@ A Discord bot that uses [DeepSeek](https://api-docs.deepseek.com/), or any OpenA
 - Settings are saved in `data/news-config.json` (git-ignored). It also stores the last few days' links and headlines so stories aren't repeated.
 - The bot has to be running for the daily post to happen.
 
+### Political compass
+
+- `src/compass/sheet.ts` stores one row per person per server: server ID, user ID, display name, economic, social, and last updated. It writes with `RAW` input, so the 18-digit Discord IDs stay as text and aren't rounded. Writes go one at a time so simultaneous commands can't overwrite each other.
+- `src/compass/plot.ts` draws the chart as SVG and converts it to PNG with `@resvg/resvg-js`:
+  - Quadrants use the familiar compass colors, softened.
+  - Each person is a labeled dot, and the person who asked is highlighted in orange.
+  - Labels are placed so they don't overlap. People at the same spot share a label. In a crowded cluster, labels that can't fit become numbers, listed under the image.
+- `/compass plot` is public in the channel. Everything else replies privately.
+
 ## Privacy
 
 Running `/summarize` sends that channel's recent message content to DeepSeek's API. Make sure the server's members and admins are okay with that before you deploy.
@@ -74,6 +108,8 @@ Usernames are pseudonymized before anything leaves the bot (`src/summary/anonymi
 - The label-to-name mapping stays in memory for that one request. Real names are swapped back into the summary before it's shown in Discord.
 
 This is best effort. Nicknames, misspellings, and names of people who aren't authors or mentioned won't be caught. Everything else in the messages is sent as written, including personal details people typed.
+
+`/compass` stores members' display names and coordinates in your Google Sheet. Only people who run `/compass set` are included, and `/compass remove` deletes their row.
 
 ## Development
 
