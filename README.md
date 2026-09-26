@@ -9,7 +9,9 @@ A Discord bot with one slash command, `/summarize`. It reads the last N messages
 ## Setup
 
 1. **Create the bot** at <https://discord.com/developers/applications>:
-   - New Application → **Bot** → copy the token.
+   - Click **New Application** and give it a name.
+   - **General Information** page: copy the **Application ID** (a number) → `DISCORD_CLIENT_ID`. It's the same as "Client ID" on the OAuth2 page.
+   - **Bot** page: under **Token**, click **Reset Token** and copy the long string → `DISCORD_TOKEN`. Discord shows it only once; if you lose it, reset again. It's a password for your bot, so never commit or share it, and reset it if it leaks.
    - Turn on the **Message Content Intent**. It's on the app's **Bot** page, not General Information. Either:
      - open your application and click **Bot** in the left sidebar, or
      - go to <https://discord.com/developers/applications/select/bot> and pick your app.
@@ -17,7 +19,7 @@ A Discord bot with one slash command, `/summarize`. It reads the last N messages
      Scroll down past **Token** and **Authorization Flow** to **Privileged Gateway Intents**, turn on **Message Content Intent**, and click **Save Changes**.
      - If this is off, messages come back with empty text, and `/summarize` says there's nothing to summarize.
      - If the bot fails to log in with close code `4014` ("Disallowed intent(s)"), the toggle wasn't saved.
-   - Copy the **Application ID** from General Information.
+   - Optional, `DISCORD_GUILD_ID`: in the Discord app, turn on User Settings → Advanced → **Developer Mode**, then right-click your server → **Copy Server ID**.
 2. **Invite it** using OAuth2 → URL Generator:
    - Scopes: `bot`, `applications.commands`
    - Bot permissions: View Channels, Read Message History, Send Messages
