@@ -10,7 +10,13 @@ A Discord bot with one slash command, `/summarize`. It reads the last N messages
 
 1. **Create the bot** at <https://discord.com/developers/applications>:
    - New Application → **Bot** → copy the token.
-   - Under **Privileged Gateway Intents**, turn on **Message Content Intent**. Without it, messages come back with empty text.
+   - Turn on the **Message Content Intent**. It's on the app's **Bot** page, not General Information. Either:
+     - open your application and click **Bot** in the left sidebar, or
+     - go to <https://discord.com/developers/applications/select/bot> and pick your app.
+
+     Scroll down past **Token** and **Authorization Flow** to **Privileged Gateway Intents**, turn on **Message Content Intent**, and click **Save Changes**.
+     - If this is off, messages come back with empty text, and `/summarize` says there's nothing to summarize.
+     - If the bot fails to log in with close code `4014` ("Disallowed intent(s)"), the toggle wasn't saved.
    - Copy the **Application ID** from General Information.
 2. **Invite it** using OAuth2 → URL Generator:
    - Scopes: `bot`, `applications.commands`
