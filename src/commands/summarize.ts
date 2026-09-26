@@ -5,7 +5,12 @@ import {
   PermissionFlagsBits,
   SlashCommandBuilder,
 } from 'discord.js';
-import { fetchRecentMessages, toTranscriptMessage } from '../discord/fetchMessages.js';
+import {
+  fetchRecentMessages,
+  registerUsers,
+  toTranscriptMessage,
+} from '../discord/fetchMessages.js';
+import { Pseudonymizer } from '../summary/anonymize.js';
 import { chunkText, formatMessages, truncateToBudget } from '../summary/format.js';
 import { summarize } from '../summary/llm.js';
 
@@ -73,14 +78,18 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
 
   try {
     const messages = await fetchRecentMessages(channel, count);
-    const lines = formatMessages(messages.map(toTranscriptMessage), { includeBots });
+    // Real names never leave the bot: the LLM only sees User1, User2, ...
+    const pseudo = new Pseudonymizer();
+    for (const m of messages) registerUsers(m, pseudo);
+    const transcript = messages.map((m) => toTranscriptMessage(m, pseudo));
+    const lines = formatMessages(transcript, { includeBots });
     if (lines.length === 0) {
       await interaction.editReply('There are no messages with content to summarize.');
       return;
     }
 
     const { lines: kept, dropped } = truncateToBudget(lines, TRANSCRIPT_CHAR_BUDGET);
-    const summary = await summarize(kept.join('\n'), channel.name);
+    const summary = pseudo.restore(await summarize(kept.join('\n'), channel.name));
 
     let footer = `${kept.length} messages summarized`;
     if (dropped > 0) footer += ` (${dropped} oldest omitted to fit length limit)`;

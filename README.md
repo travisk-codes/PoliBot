@@ -38,6 +38,14 @@ A Discord bot with one slash command, `/summarize`. It reads the last N messages
 
 Running `/summarize` sends that channel's recent message content to DeepSeek's API. Make sure the server's members and admins are okay with that before you deploy.
 
+Usernames are pseudonymized before anything leaves the bot (`src/summary/anonymize.ts`):
+
+- Message authors and `@mentions` become `User1`, `User2`, and so on. The same person gets the same label throughout a request.
+- Plain-text occurrences of the display name, global name, or username of anyone who wrote or was mentioned in the fetched messages are also replaced. Names shorter than 3 characters are skipped.
+- The label-to-name mapping stays in memory for that one request. Real names are swapped back into the summary before it's shown in Discord.
+
+This is best effort. Nicknames, misspellings, and names of people who aren't authors or mentioned won't be caught. Everything else in the messages is sent as written, including personal details people typed.
+
 ## Development
 
 ```sh
