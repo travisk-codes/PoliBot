@@ -1,9 +1,14 @@
-import type { ChatInputCommandInteraction, SlashCommandOptionsOnlyBuilder } from 'discord.js';
+import type {
+  ChatInputCommandInteraction,
+  SlashCommandOptionsOnlyBuilder,
+  SlashCommandSubcommandsOnlyBuilder,
+} from 'discord.js';
+import * as dailynews from './dailynews.js';
 import * as summarize from './summarize.js';
 
 export interface Command {
-  data: SlashCommandOptionsOnlyBuilder;
+  data: SlashCommandOptionsOnlyBuilder | SlashCommandSubcommandsOnlyBuilder;
   execute: (interaction: ChatInputCommandInteraction) => Promise<void>;
 }
 
-export const commands: Command[] = [summarize];
+export const commands: Command[] = [summarize, dailynews];
