@@ -1,7 +1,6 @@
 import { Client, Events, GatewayIntentBits, MessageFlags } from 'discord.js';
 import { commands } from './commands/index.js';
 import { discordConfig } from './config.js';
-import { startNewsScheduler } from './news/scheduler.js';
 
 const byName = new Map(commands.map((c) => [c.data.name, c]));
 
@@ -17,7 +16,6 @@ const client = new Client({
 
 client.once(Events.ClientReady, (c) => {
   console.log(`Logged in as ${c.user.tag}`);
-  startNewsScheduler(c);
 });
 
 client.on(Events.InteractionCreate, async (interaction) => {
