@@ -1,4 +1,5 @@
-import type { Collection, GuildTextBasedChannel, Message } from 'discord.js';
+import { cleanContent, type Collection, type GuildTextBasedChannel, type Message } from 'discord.js';
+import type { Pseudonymizer } from '../summary/anonymize.js';
 import type { TranscriptMessage } from '../summary/format.js';
 
 // Discord returns at most 100 messages per request.
@@ -29,14 +30,36 @@ export async function fetchRecentMessages(
   return collected.reverse();
 }
 
-export function toTranscriptMessage(msg: Message): TranscriptMessage {
+/**
+ * Registers the author and every mentioned user of a message with the
+ * pseudonymizer. Call this for all messages before `toTranscriptMessage`, so
+ * plain-text name scrubbing knows every name in the conversation.
+ */
+export function registerUsers(msg: Message, pseudo: Pseudonymizer): void {
+  pseudo.alias(msg.author.id, [
+    msg.member?.displayName,
+    msg.author.globalName,
+    msg.author.username,
+  ]);
+  for (const user of msg.mentions.users.values()) {
+    pseudo.alias(user.id, [
+      msg.mentions.members?.get(user.id)?.displayName,
+      user.globalName,
+      user.username,
+    ]);
+  }
+}
+
+export function toTranscriptMessage(msg: Message, pseudo: Pseudonymizer): TranscriptMessage {
   return {
-    authorName: msg.member?.displayName ?? msg.author.displayName ?? msg.author.username,
+    authorName: pseudo.alias(msg.author.id),
     isBot: msg.author.bot,
     isSystem: msg.system,
-    content: msg.cleanContent,
+    // User mentions are replaced first, so cleanContent only resolves the
+    // remaining role/channel/emoji mentions and never inserts a real name.
+    content: cleanContent(pseudo.scrubText(msg.content), msg.channel),
     createdAt: msg.createdAt,
-    attachmentNames: [...msg.attachments.values()].map((a) => a.name),
+    attachmentNames: [...msg.attachments.values()].map((a) => pseudo.scrubText(a.name)),
     embedCount: msg.embeds.length,
   };
 }

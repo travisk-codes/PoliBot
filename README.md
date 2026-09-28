@@ -9,9 +9,17 @@ A Discord bot with one slash command, `/summarize`. It reads the last N messages
 ## Setup
 
 1. **Create the bot** at <https://discord.com/developers/applications>:
-   - New Application → **Bot** → copy the token.
-   - Under **Privileged Gateway Intents**, turn on **Message Content Intent**. Without it, messages come back with empty text.
-   - Copy the **Application ID** from General Information.
+   - Click **New Application** and give it a name.
+   - **General Information** page: copy the **Application ID** (a number) → `DISCORD_CLIENT_ID`. It's the same as "Client ID" on the OAuth2 page.
+   - **Bot** page: under **Token**, click **Reset Token** and copy the long string → `DISCORD_TOKEN`. Discord shows it only once; if you lose it, reset again. It's a password for your bot, so never commit or share it, and reset it if it leaks.
+   - Turn on the **Message Content Intent**. It's on the app's **Bot** page, not General Information. Either:
+     - open your application and click **Bot** in the left sidebar, or
+     - go to <https://discord.com/developers/applications/select/bot> and pick your app.
+
+     Scroll down past **Token** and **Authorization Flow** to **Privileged Gateway Intents**, turn on **Message Content Intent**, and click **Save Changes**.
+     - If this is off, messages come back with empty text, and `/summarize` says there's nothing to summarize.
+     - If the bot fails to log in with close code `4014` ("Disallowed intent(s)"), the toggle wasn't saved.
+   - Optional, `DISCORD_GUILD_ID`: in the Discord app, turn on User Settings → Advanced → **Developer Mode**, then right-click your server → **Copy Server ID**.
 2. **Invite it** using OAuth2 → URL Generator:
    - Scopes: `bot`, `applications.commands`
    - Bot permissions: View Channels, Read Message History, Send Messages
@@ -37,6 +45,14 @@ A Discord bot with one slash command, `/summarize`. It reads the last N messages
 ## Privacy
 
 Running `/summarize` sends that channel's recent message content to DeepSeek's API. Make sure the server's members and admins are okay with that before you deploy.
+
+Usernames are pseudonymized before anything leaves the bot (`src/summary/anonymize.ts`):
+
+- Message authors and `@mentions` become `User1`, `User2`, and so on. The same person gets the same label throughout a request.
+- Plain-text occurrences of the display name, global name, or username of anyone who wrote or was mentioned in the fetched messages are also replaced. Names shorter than 3 characters are skipped.
+- The label-to-name mapping stays in memory for that one request. Real names are swapped back into the summary before it's shown in Discord.
+
+This is best effort. Nicknames, misspellings, and names of people who aren't authors or mentioned won't be caught. Everything else in the messages is sent as written, including personal details people typed.
 
 ## Development
 
