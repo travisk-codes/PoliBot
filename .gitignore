@@ -1,6 +1,5 @@
 node_modules/
 dist/
 .env
-data/
 # Google service account key (a secret)
 google-service-account*.json
