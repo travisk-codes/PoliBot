@@ -233,9 +233,9 @@ export function buildCompassSvg(points: PlotPoint[], title: string): PlotResult 
   return { svg: out.join('\n'), numbered };
 }
 
-export function renderPng(svg: string): Buffer {
+export function renderPng(svg: string, width = WIDTH): Buffer {
   const resvg = new Resvg(svg, {
-    fitTo: { mode: 'width', value: WIDTH },
+    fitTo: { mode: 'width', value: width },
     font: { loadSystemFonts: true, defaultFontFamily: 'DejaVu Sans' },
   });
   return Buffer.from(resvg.render().asPng());

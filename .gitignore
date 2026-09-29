@@ -3,3 +3,4 @@ dist/
 .env
 # Google service account key (a secret)
 google-service-account*.json
+data/
