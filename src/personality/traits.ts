@@ -56,7 +56,7 @@ export function getTrait(id: string): Trait | undefined {
   return byId.get(id);
 }
 
-/** Shown until a server runs /personality calibrate. */
+/** Shown until a server runs /personality metrics calibrate. */
 export const DEFAULT_DIMENSIONS = [
   'openness',
   'conscientiousness',
