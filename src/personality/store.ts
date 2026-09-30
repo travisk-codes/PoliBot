@@ -20,18 +20,40 @@ export interface Profile {
   updatedAt: string;
 }
 
+export interface SummaryEntry {
+  text: string;
+  messageCount: number;
+  channelCount?: number;
+  sampleVersion?: number;
+  updatedAt: string;
+}
+
 interface GuildData {
-  optedIn: Record<string, string>; // userId -> opted-in timestamp
+  /** Opted in to metrics (trait charts). userId -> timestamp. */
+  optedIn: Record<string, string>;
+  /** Opted in to written summaries, separately. userId -> timestamp. */
+  summaryOptedIn?: Record<string, string>;
   dimensions?: string[];
   calibratedAt?: string;
   channels?: ChannelSettings;
   profiles: Record<string, Profile>;
   /** userId -> channelId -> profile built from that channel only. */
   channelProfiles?: Record<string, Record<string, Profile>>;
+  summaries?: Record<string, SummaryEntry>;
+  /** userId -> channelId -> summary built from that channel only. */
+  channelSummaries?: Record<string, Record<string, SummaryEntry>>;
 }
 
-function isCurrent(p: Profile | undefined): Profile | undefined {
+function isCurrent<T extends { sampleVersion?: number }>(p: T | undefined): T | undefined {
   return p && p.sampleVersion === SAMPLE_VERSION ? p : undefined;
+}
+
+/** Deletes entries built with an older sampling method. */
+function purgeStale<T extends { sampleVersion?: number }>(flat?: Record<string, T>, nested?: Record<string, Record<string, T>>): void {
+  for (const [k, v] of Object.entries(flat ?? {})) if (!isCurrent(v)) delete flat![k];
+  for (const inner of Object.values(nested ?? {})) {
+    for (const [k, v] of Object.entries(inner)) if (!isCurrent(v)) delete inner[k];
+  }
 }
 
 /** Opt-ins, channel settings, chosen dimensions, and cached scores. No message text is stored. */
@@ -50,14 +72,8 @@ export class PersonalityStore {
       // Drop profiles built with an older sampling method (e.g. before
       // private channels were excluded) instead of keeping them around.
       for (const g of Object.values(this.data!)) {
-        for (const [uid, p] of Object.entries(g.profiles ?? {})) {
-          if (!isCurrent(p)) delete g.profiles[uid];
-        }
-        for (const perChannel of Object.values(g.channelProfiles ?? {})) {
-          for (const [cid, p] of Object.entries(perChannel)) {
-            if (!isCurrent(p)) delete perChannel[cid];
-          }
-        }
+        purgeStale(g.profiles, g.channelProfiles);
+        purgeStale(g.summaries, g.channelSummaries);
       }
     }
     return this.data!;
@@ -130,6 +146,8 @@ export class PersonalityStore {
     g.channels = c;
     g.profiles = {};
     g.channelProfiles = {};
+    g.summaries = {};
+    g.channelSummaries = {};
     this.save();
   }
 
@@ -178,6 +196,53 @@ export class PersonalityStore {
     g.channelProfiles ??= {};
     g.channelProfiles[userId] ??= {};
     g.channelProfiles[userId][channelId] = { ...profile, sampleVersion: SAMPLE_VERSION };
+    this.save();
+  }
+
+  // Written summaries: a separate opt-in and cache. Only the generated
+  // summary text is stored, never message text.
+
+  summaryOptIn(guildId: string, userId: string): boolean {
+    const g = this.guild(guildId);
+    g.summaryOptedIn ??= {};
+    const already = userId in g.summaryOptedIn;
+    g.summaryOptedIn[userId] ??= new Date().toISOString();
+    this.save();
+    return !already;
+  }
+
+  /** Removes the summary opt-in and every cached summary for the user. */
+  summaryOptOut(guildId: string, userId: string): boolean {
+    const g = this.guild(guildId);
+    const was = !!g.summaryOptedIn && userId in g.summaryOptedIn;
+    if (g.summaryOptedIn) delete g.summaryOptedIn[userId];
+    if (g.summaries) delete g.summaries[userId];
+    if (g.channelSummaries) delete g.channelSummaries[userId];
+    this.save();
+    return was;
+  }
+
+  isSummaryOptedIn(guildId: string, userId: string): boolean {
+    return !!this.guild(guildId).summaryOptedIn?.[userId];
+  }
+
+  getSummary(guildId: string, userId: string, channelId?: string): SummaryEntry | undefined {
+    const g = this.guild(guildId);
+    return isCurrent(channelId ? g.channelSummaries?.[userId]?.[channelId] : g.summaries?.[userId]);
+  }
+
+  setSummary(guildId: string, userId: string, entry: SummaryEntry, channelId?: string): void {
+    const g = this.guild(guildId);
+    if (!this.isSummaryOptedIn(guildId, userId)) return;
+    const stamped = { ...entry, sampleVersion: SAMPLE_VERSION };
+    if (channelId) {
+      g.channelSummaries ??= {};
+      g.channelSummaries[userId] ??= {};
+      g.channelSummaries[userId][channelId] = stamped;
+    } else {
+      g.summaries ??= {};
+      g.summaries[userId] = stamped;
+    }
     this.save();
   }
 }
