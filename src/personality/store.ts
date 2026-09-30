@@ -1,12 +1,22 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
+import type { ChannelSettings } from './channels.js';
 import { DEFAULT_DIMENSIONS, type Scores } from './traits.js';
+
+/**
+ * Bumped when the way messages are chosen changes. Cached profiles from an
+ * older version are rebuilt. Version 2: eligible (public) channels only,
+ * balanced across channels.
+ */
+export const SAMPLE_VERSION = 2;
 
 export interface Profile {
   scores: Scores;
   halfA: Scores;
   halfB: Scores;
   messageCount: number;
+  channelCount?: number;
+  sampleVersion?: number;
   updatedAt: string;
 }
 
@@ -14,10 +24,17 @@ interface GuildData {
   optedIn: Record<string, string>; // userId -> opted-in timestamp
   dimensions?: string[];
   calibratedAt?: string;
+  channels?: ChannelSettings;
   profiles: Record<string, Profile>;
+  /** userId -> channelId -> profile built from that channel only. */
+  channelProfiles?: Record<string, Record<string, Profile>>;
 }
 
-/** Opt-ins, chosen dimensions, and cached scores. No message text is stored. */
+function isCurrent(p: Profile | undefined): Profile | undefined {
+  return p && p.sampleVersion === SAMPLE_VERSION ? p : undefined;
+}
+
+/** Opt-ins, channel settings, chosen dimensions, and cached scores. No message text is stored. */
 export class PersonalityStore {
   private data: Record<string, GuildData> | undefined;
 
@@ -29,6 +46,18 @@ export class PersonalityStore {
         this.data = JSON.parse(readFileSync(this.file, 'utf8'));
       } catch {
         this.data = {};
+      }
+      // Drop profiles built with an older sampling method (e.g. before
+      // private channels were excluded) instead of keeping them around.
+      for (const g of Object.values(this.data!)) {
+        for (const [uid, p] of Object.entries(g.profiles ?? {})) {
+          if (!isCurrent(p)) delete g.profiles[uid];
+        }
+        for (const perChannel of Object.values(g.channelProfiles ?? {})) {
+          for (const [cid, p] of Object.entries(perChannel)) {
+            if (!isCurrent(p)) delete perChannel[cid];
+          }
+        }
       }
     }
     return this.data!;
@@ -55,12 +84,13 @@ export class PersonalityStore {
     return !already;
   }
 
-  /** Removes the opt-in and any cached profile. */
+  /** Removes the opt-in and every cached profile for the user. */
   optOut(guildId: string, userId: string): boolean {
     const g = this.guild(guildId);
     const was = userId in g.optedIn;
     delete g.optedIn[userId];
     delete g.profiles[userId];
+    if (g.channelProfiles) delete g.channelProfiles[userId];
     this.save();
     return was;
   }
@@ -85,15 +115,69 @@ export class PersonalityStore {
     this.save();
   }
 
-  getProfile(guildId: string, userId: string): Profile | undefined {
-    return this.guild(guildId).profiles[userId];
+  // Channel settings. Any change clears cached profiles, since they were built
+  // from a different set of channels.
+
+  getChannelSettings(guildId: string): ChannelSettings {
+    const c = this.guild(guildId).channels;
+    return { excluded: [...(c?.excluded ?? [])], included: [...(c?.included ?? [])] };
   }
 
-  /** Only stored for opted-in users. */
+  private updateChannels(guildId: string, fn: (c: ChannelSettings) => void): void {
+    const g = this.guild(guildId);
+    const c = this.getChannelSettings(guildId);
+    fn(c);
+    g.channels = c;
+    g.profiles = {};
+    g.channelProfiles = {};
+    this.save();
+  }
+
+  excludeChannel(guildId: string, channelId: string): void {
+    this.updateChannels(guildId, (c) => {
+      c.included = c.included.filter((id) => id !== channelId);
+      if (!c.excluded.includes(channelId)) c.excluded.push(channelId);
+    });
+  }
+
+  includeChannel(guildId: string, channelId: string): void {
+    this.updateChannels(guildId, (c) => {
+      c.excluded = c.excluded.filter((id) => id !== channelId);
+      if (!c.included.includes(channelId)) c.included.push(channelId);
+    });
+  }
+
+  /** Back to the default: analyzed if public, not if private. */
+  resetChannel(guildId: string, channelId: string): void {
+    this.updateChannels(guildId, (c) => {
+      c.excluded = c.excluded.filter((id) => id !== channelId);
+      c.included = c.included.filter((id) => id !== channelId);
+    });
+  }
+
+  // Profiles. Only stored for opted-in users; stale-version profiles are ignored.
+
+  getProfile(guildId: string, userId: string): Profile | undefined {
+    return isCurrent(this.guild(guildId).profiles[userId]);
+  }
+
   setProfile(guildId: string, userId: string, profile: Profile): void {
     const g = this.guild(guildId);
     if (!(userId in g.optedIn)) return;
-    g.profiles[userId] = profile;
+    g.profiles[userId] = { ...profile, sampleVersion: SAMPLE_VERSION };
+    this.save();
+  }
+
+  getChannelProfile(guildId: string, userId: string, channelId: string): Profile | undefined {
+    return isCurrent(this.guild(guildId).channelProfiles?.[userId]?.[channelId]);
+  }
+
+  setChannelProfile(guildId: string, userId: string, channelId: string, profile: Profile): void {
+    const g = this.guild(guildId);
+    if (!(userId in g.optedIn)) return;
+    g.channelProfiles ??= {};
+    g.channelProfiles[userId] ??= {};
+    g.channelProfiles[userId][channelId] = { ...profile, sampleVersion: SAMPLE_VERSION };
     this.save();
   }
 }

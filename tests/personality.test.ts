@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { buildPersonalitySvg, formatValue } from '../src/personality/chart.js';
 import { averageScores, buildScoringInput, parseScores, splitHalves } from '../src/personality/score.js';
 import { pearson, sd, selectTraits, spearmanBrown } from '../src/personality/select.js';
-import { PersonalityStore } from '../src/personality/store.js';
+import { PersonalityStore, SAMPLE_VERSION } from '../src/personality/store.js';
 import { DEFAULT_DIMENSIONS, TRAIT_IDS, TRAITS } from '../src/personality/traits.js';
 
 describe('traits', () => {
@@ -121,7 +121,7 @@ describe('PersonalityStore', () => {
     expect(store.optIn('g', 'u1')).toBe(true);
     expect(store.optIn('g', 'u1')).toBe(false);
     store.setProfile('g', 'u1', profile);
-    expect(store.getProfile('g', 'u1')).toEqual(profile);
+    expect(store.getProfile('g', 'u1')).toEqual({ ...profile, sampleVersion: SAMPLE_VERSION });
     expect(store.dimensions('g').ids).toEqual(DEFAULT_DIMENSIONS);
     store.setDimensions('g', ['openness']);
 

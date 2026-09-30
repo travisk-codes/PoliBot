@@ -16,8 +16,10 @@ A Discord bot with three commands:
 
 /personality optin              # allow your messages to be analyzed
 /personality optout             # stop, and delete your stored profile
-/personality show [user:@x]     # posts a chart (you, or someone who opted in)
-/personality calibrate          # Manage Server only: test and choose traits
+/personality show [user:@x] [channel:#y]   # posts a chart (you, or someone who opted in)
+/personality calibrate                     # Manage Server only: test and choose traits
+/personality channels list                 # which channels are analyzed
+/personality channels exclude|include|reset channel:#y   # Manage Server only
 ```
 
 ## Setup
@@ -97,7 +99,13 @@ The bot creates a **Compass** tab with a header row on first use. You can view o
 
 MBTI, the Dark Triad, and clinical labels are deliberately left out.
 
-**Scoring** (`src/personality/score.ts`): each person's messages from the last 90 days are collected. They need at least 30 messages of 3+ words. Other people's names and mentions are anonymized, then the messages are split into two interleaved halves. The AI scores each half on all 16 traits from −1 to 1, and the profile is the average of the two halves.
+**Which channels** (`src/personality/channels.ts`): by default, only channels visible to `@everyone` are analyzed, so a public chart can't be built from mod-only or private channels. Admins can `exclude` public channels (memes, bot commands, venting) or `include` a non-public one. Including a non-public channel warns that charts from it are posted publicly. `/personality channels list` shows the current set to anyone. Threads and forum posts aren't included. Changing the set clears cached profiles.
+
+**Sampling** (`src/personality/collect.ts`): up to 1,000 recent messages per channel are scanned, going back 90 days. From those, up to 400 of a person's messages (about 40k characters) are picked **round-robin across the channels they're active in**, so one busy channel can't dominate. They need at least 30 messages of 3+ words. Each message is tagged with its channel (`[#debate] …`), and the AI is told to look for tendencies that hold across contexts.
+
+**Scoring** (`src/personality/score.ts`): other people's names and mentions are anonymized. Then each channel's messages are split alternately into two halves, so both halves have the same channel mix. The AI scores each half on all 16 traits from −1 to 1, and the profile is the average of the two halves.
+
+**One channel:** `show channel:#debate` builds a profile from that channel alone (same minimums), for comparing how someone comes across in different settings. The channel has to be eligible under the rules above. Calibration always uses the pooled, all-channel profiles.
 
 **Choosing traits** (`/personality calibrate`, `src/personality/select.ts`) needs at least 5 opted-in members with enough messages. For each trait it measures:
 - **Reliability:** do the two halves agree across people? This uses the split-half correlation with the Spearman-Brown correction. Below 0.5, the trait can't be measured from this server's text, so it's dropped.
@@ -124,7 +132,7 @@ This is best effort. Nicknames, misspellings, and names of people who aren't aut
 
 `/compass` stores members' display names and coordinates in your Google Sheet. Only people who run `/compass set` are included, and `/compass remove` deletes their row.
 
-`/personality` only analyzes members who ran `/personality optin`. When a profile is built, those members' recent messages are sent to the AI provider with other people's names anonymized. Only the resulting scores are stored, in `data/personality.json` (git-ignored); message text never is. `/personality optout` deletes a member's scores. Charts are posted publicly.
+`/personality` only analyzes members who ran `/personality optin`, and by default only their messages in channels everyone can see. When a profile is built, those messages are sent to the AI provider with other people's names anonymized. Only the resulting scores are stored, in `data/personality.json` (git-ignored); message text never is. `/personality optout` deletes a member's scores. Charts are posted publicly.
 
 ## Development
 
