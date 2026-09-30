@@ -81,3 +81,12 @@ export function chunkText(text: string, maxLen: number): string[] {
   if (rest.length > 0) chunks.push(rest);
   return chunks;
 }
+
+/** "1 minute", "30 minutes", "1 hour", "90 minutes", "2 hours". */
+export function formatDuration(minutes: number): string {
+  if (minutes >= 60 && minutes % 60 === 0) {
+    const h = minutes / 60;
+    return `${h} hour${h === 1 ? '' : 's'}`;
+  }
+  return `${minutes} minute${minutes === 1 ? '' : 's'}`;
+}

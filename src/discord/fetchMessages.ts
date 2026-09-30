@@ -7,11 +7,14 @@ const PAGE_SIZE = 100;
 
 /**
  * Fetches up to `count` of the most recent messages in the channel, paging
- * backwards, and returns them oldest-first.
+ * backwards, and returns them oldest-first. With `since` (a timestamp in ms),
+ * only messages at or after it are kept, and paging stops once older
+ * messages are reached.
  */
 export async function fetchRecentMessages(
-  channel: GuildTextBasedChannel,
+  channel: Pick<GuildTextBasedChannel, 'messages'>,
   count: number,
+  since?: number,
 ): Promise<Message[]> {
   const collected: Message[] = [];
   let before: string | undefined;
@@ -22,9 +25,16 @@ export async function fetchRecentMessages(
     if (page.size === 0) break;
 
     // Pages come back newest-first.
-    collected.push(...page.values());
+    let reachedSince = false;
+    for (const msg of page.values()) {
+      if (since !== undefined && msg.createdTimestamp < since) {
+        reachedSince = true;
+        break;
+      }
+      collected.push(msg);
+    }
     before = page.last()?.id;
-    if (page.size < limit) break;
+    if (reachedSince || page.size < limit) break;
   }
 
   return collected.reverse();
