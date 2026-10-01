@@ -1,3 +1,5 @@
+import { FONT_FAMILY } from '../fonts.js';
+
 export interface ChartRow {
   name: string;
   low: string;
@@ -20,7 +22,7 @@ const C = {
 };
 
 export const CHART_WIDTH = 1000;
-const FONT = "'DejaVu Sans', 'Segoe UI', Arial, Helvetica, sans-serif";
+const FONT = FONT_FAMILY;
 const TRACK_X1 = 250;
 const TRACK_X2 = 750;
 const TRACK_MID = (TRACK_X1 + TRACK_X2) / 2;
