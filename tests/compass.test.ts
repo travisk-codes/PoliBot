@@ -1,6 +1,6 @@
 import type { sheets_v4 } from '@googleapis/sheets';
 import { describe, expect, it } from 'vitest';
-import { buildCompassSvg, renderPng, toPixel } from '../src/compass/plot.js';
+import { buildCompassSvg, renderPng, textWidth, toPixel } from '../src/compass/plot.js';
 import { entryToRow, findRowIndex, HEADERS, rowToEntry } from '../src/compass/rows.js';
 import { GoogleSheetStore } from '../src/compass/sheet.js';
 import { quadrantName, type CompassEntry } from '../src/compass/types.js';
@@ -170,15 +170,74 @@ describe('plot', () => {
     expect(svg).toContain('>Ann, Bob<');
   });
 
-  it('numbers labels that cannot fit and reports them', () => {
+  /** Label texts and their approximate boxes, parsed back out of the SVG. */
+  function labels(svg: string) {
+    return [...svg.matchAll(/<text x="([\d.]+)" y="([\d.]+)" font-size="14" font-weight="(\w+)"[^>]*text-anchor="(\w+)"[^>]*>([^<]*)<\/text>/g)].map(
+      (m) => {
+        const [x, y, anchor, text] = [Number(m[1]), Number(m[2]), m[4], m[5]];
+        const w = textWidth(text, 14, m[3] === 'bold');
+        const x1 = anchor === 'start' ? x : anchor === 'end' ? x - w : x - w / 2;
+        return { text, x1, x2: x1 + w, y1: y - 11, y2: y + 3.5 };
+      },
+    );
+  }
+
+  it('shows every full name, even in a crowded cluster of long names', () => {
     const crowd = Array.from({ length: 12 }, (_, i) => ({
-      name: `Person number ${i}`,
+      name: `Person with a fairly long display name ${i}`,
       economic: 1 + i * 0.05,
       social: 1,
     }));
-    const { numbered } = buildCompassSvg(crowd, 'Test');
-    expect(numbered.length).toBeGreaterThan(0);
-    expect(numbered[0]).toMatchObject({ number: 1 });
+    const { svg } = buildCompassSvg(crowd, 'Test');
+    const texts = labels(svg).map((l) => l.text);
+    for (const p of crowd) expect(texts).toContain(p.name);
+    expect(texts.some((t) => /^\d+$/.test(t))).toBe(false);
+    // Labels pushed away from their dot get a leader line.
+    expect(svg).toContain('class="leader"');
+  });
+
+  it('does not shorten long names', () => {
+    const name = 'zenshift the financial wizard of the north';
+    const { svg } = buildCompassSvg([{ name, economic: 0, social: 0 }], 'Test');
+    expect(svg).toContain(`>${name}<`);
+  });
+
+  it('keeps labels next to their dots, without leader lines, when there is room', () => {
+    const { svg } = buildCompassSvg(
+      [
+        { name: 'Alice', economic: -5, social: 5 },
+        { name: 'Bob', economic: 5, social: -5 },
+        { name: 'Carol', economic: 5, social: 5 },
+      ],
+      'Test',
+    );
+    expect(svg).not.toContain('class="leader"');
+  });
+
+  it('avoids overlapping labels when there is space nearby', () => {
+    const pts = [
+      { name: 'Klepto the Negromancer', economic: -2.6, social: -3.4 },
+      { name: 'Mystery Member With A Long Name', economic: -1, social: -4 },
+      { name: 'magz', economic: -2.5, social: -4.4, highlight: true },
+      { name: 'zenshift the financial wizard', economic: 1, social: -5 },
+      { name: 'Insufferable', economic: 0.1, social: -2.5 },
+    ];
+    const ls = labels(buildCompassSvg(pts, 'Test').svg);
+    expect(ls).toHaveLength(5);
+    for (let i = 0; i < ls.length; i++) {
+      for (let j = i + 1; j < ls.length; j++) {
+        const [a, b] = [ls[i], ls[j]];
+        const overlap = a.x1 < b.x2 && a.x2 > b.x1 && a.y1 < b.y2 && a.y2 > b.y1;
+        expect(overlap, `${a.text} / ${b.text}`).toBe(false);
+      }
+    }
+  });
+
+  it('estimates emoji and CJK as wider than Latin letters', () => {
+    expect(textWidth('ab', 10)).toBeCloseTo(12.4);
+    expect(textWidth('🌸', 10)).toBeGreaterThan(textWidth('a', 10));
+    expect(textWidth('漢', 10)).toBeGreaterThan(textWidth('a', 10));
+    expect(textWidth('👍🏽', 10)).toBeGreaterThan(0);
   });
 
   it('renders a PNG', () => {

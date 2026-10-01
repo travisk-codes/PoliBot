@@ -1,4 +1,5 @@
 import { Resvg } from '@resvg/resvg-js';
+import { FONT_FAMILY, FONT_FILES } from '../fonts.js';
 import { AXIS_MAX, AXIS_MIN } from './types.js';
 
 export interface PlotPoint {
@@ -11,8 +12,6 @@ export interface PlotPoint {
 
 export interface PlotResult {
   svg: string;
-  /** Labels that didn't fit next to their dot and were drawn as numbers instead. */
-  numbered: Array<{ number: number; name: string }>;
 }
 
 // Canvas and plot area (square).
@@ -22,11 +21,13 @@ const PLOT_X = 100;
 const PLOT_Y = 110;
 const PLOT_SIZE = 800;
 
-const FONT = "'DejaVu Sans', 'Segoe UI', Arial, Helvetica, sans-serif";
+const FONT = FONT_FAMILY;
 const LABEL_SIZE = 14;
 const DOT_R = 6;
 const HIGHLIGHT_R = 7;
-const NAME_MAX = 20;
+// How far from its dot a label may be moved (with a leader line) to find space.
+const MAX_LABEL_DISTANCE = 170;
+const RING_STEP = 18;
 
 // Light surface with recessive quadrant tints in the familiar compass hues.
 const COLORS = {
@@ -43,6 +44,7 @@ const COLORS = {
   libRight: '#ede6f7',
   dot: '#1f1f1e',
   highlight: '#eb6834',
+  leader: '#8a8984',
 };
 
 interface Box {
@@ -77,42 +79,95 @@ function overlaps(a: Box, b: Box): boolean {
 // Labels may spill into the margins (axis text is registered as an obstacle).
 const LABEL_BOUNDS = { x1: 10, y1: PLOT_Y - 26, x2: WIDTH - 10, y2: PLOT_Y + PLOT_SIZE + 36 };
 
-function textBox(x: number, y: number, text: string, size: number, anchor: string): Box {
-  const w = [...text].length * size * 0.62;
+const WIDE_CHAR = /[\p{Extended_Pictographic}\u2E80-\u9FFF\uAC00-\uD7AF\uF900-\uFAFF\uFF00-\uFFEF]/u;
+
+/** Rough rendered width: emoji and CJK are about one em wide, other glyphs ~0.62 em. */
+export function textWidth(text: string, size: number, bold = false): number {
+  let ems = 0;
+  for (const ch of text) {
+    if (/\p{Mark}|\u200D|\uFE0F/u.test(ch)) continue; // combining marks, ZWJ, variation selectors
+    ems += WIDE_CHAR.test(ch) ? 1.15 : bold ? 0.68 : 0.62;
+  }
+  return ems * size;
+}
+
+function textBox(x: number, y: number, text: string, size: number, anchor: string, bold = false): Box {
+  const w = textWidth(text, size, bold);
   const x1 = anchor === 'start' ? x : anchor === 'end' ? x - w : x - w / 2;
   return { x1: x1 - 2, y1: y - size * 0.8 - 2, x2: x1 + w + 2, y2: y + size * 0.25 + 2 };
 }
 
-/**
- * Tries positions around a dot (right, left, above, below, diagonals) and
- * returns the first whose box stays in the plot and clears other labels and dots.
- */
-function placeLabel(
-  text: string,
-  dot: { x: number; y: number },
-  r: number,
-  taken: Box[],
-): { x: number; y: number; anchor: 'start' | 'end' | 'middle'; box: Box } | null {
-  const h = LABEL_SIZE;
-  const gap = r + 4;
-  const candidates: Array<{ x: number; y: number; anchor: 'start' | 'end' | 'middle' }> = [
-    { x: dot.x + gap, y: dot.y + h * 0.35, anchor: 'start' },
-    { x: dot.x - gap, y: dot.y + h * 0.35, anchor: 'end' },
-    { x: dot.x, y: dot.y - gap, anchor: 'middle' },
-    { x: dot.x, y: dot.y + gap + h * 0.8, anchor: 'middle' },
-    { x: dot.x + gap * 0.8, y: dot.y - gap * 0.8, anchor: 'start' },
-    { x: dot.x - gap * 0.8, y: dot.y - gap * 0.8, anchor: 'end' },
-    { x: dot.x + gap * 0.8, y: dot.y + gap * 0.8 + h * 0.7, anchor: 'start' },
-    { x: dot.x - gap * 0.8, y: dot.y + gap * 0.8 + h * 0.7, anchor: 'end' },
-  ];
+type Anchor = 'start' | 'end' | 'middle';
 
-  for (const c of candidates) {
-    const box = textBox(c.x, c.y, text, LABEL_SIZE, c.anchor);
-    const b = LABEL_BOUNDS;
-    const inside = box.x1 >= b.x1 && box.x2 <= b.x2 && box.y1 >= b.y1 && box.y2 <= b.y2;
-    if (inside && !taken.some((t) => overlaps(t, box))) return { ...c, box };
+interface Spot {
+  x: number;
+  y: number;
+  anchor: Anchor;
+  box: Box;
+  /** Distance from the dot center to the label anchor point. */
+  dist: number;
+}
+
+// Right, left, up, down first, then the diagonals.
+const ANGLES = [0, 180, 90, 270, 30, 150, 210, 330, 60, 120, 240, 300];
+
+function overlapArea(a: Box, b: Box): number {
+  const w = Math.min(a.x2, b.x2) - Math.max(a.x1, b.x1);
+  const h = Math.min(a.y2, b.y2) - Math.max(a.y1, b.y1);
+  return w > 0 && h > 0 ? w * h : 0;
+}
+
+function inBounds(box: Box): boolean {
+  const b = LABEL_BOUNDS;
+  return box.x1 >= b.x1 && box.x2 <= b.x2 && box.y1 >= b.y1 && box.y2 <= b.y2;
+}
+
+/** The label position at a given angle (degrees, 0 = right, 90 = up) and distance. */
+function spotAt(text: string, dot: { x: number; y: number }, angle: number, dist: number, bold: boolean): Spot {
+  const rad = (angle * Math.PI) / 180;
+  const cos = Math.cos(rad);
+  const sin = Math.sin(rad);
+  const px = dot.x + cos * dist;
+  const py = dot.y - sin * dist;
+  const h = LABEL_SIZE;
+  const anchor: Anchor = cos > 0.3 ? 'start' : cos < -0.3 ? 'end' : 'middle';
+  // Sideways: vertically centered on the point. Above: text sits on it. Below: hangs from it.
+  const y = sin > 0.3 ? py : sin < -0.3 ? py + h * 0.8 : py + h * 0.35;
+  return { x: px, y, anchor, box: textBox(px, y, text, h, anchor, bold), dist };
+}
+
+/**
+ * Searches rings of increasing distance around the dot for a spot that stays
+ * in bounds and clears every obstacle. If none is clear, returns the in-bounds
+ * spot with the least overlap, so every label is always placed.
+ */
+function placeLabel(text: string, dot: { x: number; y: number }, r: number, taken: Box[], bold: boolean): Spot {
+  const near = r + 4;
+  let best: { spot: Spot; cost: number } | undefined;
+  for (let dist = near; dist <= MAX_LABEL_DISTANCE; dist += RING_STEP) {
+    for (const angle of ANGLES) {
+      const spot = spotAt(text, dot, angle, dist, bold);
+      if (!inBounds(spot.box)) continue;
+      const overlap = taken.reduce((sum, t) => sum + overlapArea(t, spot.box), 0);
+      if (overlap === 0) return spot;
+      const cost = overlap + dist; // prefer less overlap, then closer
+      if (!best || cost < best.cost) best = { spot, cost };
+    }
   }
-  return null;
+  return best?.spot ?? spotAt(text, dot, 0, near, bold);
+}
+
+/** Leader line from the dot's edge to the nearest point of the label box. */
+function leaderLine(dot: { x: number; y: number; r: number }, box: Box): string {
+  const tx = Math.max(box.x1, Math.min(dot.x, box.x2));
+  const ty = Math.max(box.y1, Math.min(dot.y, box.y2));
+  const dx = tx - dot.x;
+  const dy = ty - dot.y;
+  const len = Math.hypot(dx, dy) || 1;
+  const sx = dot.x + (dx / len) * (dot.r + 2);
+  const sy = dot.y + (dy / len) * (dot.r + 2);
+  const f = (n: number) => n.toFixed(1);
+  return `<line class="leader" x1="${f(sx)}" y1="${f(sy)}" x2="${f(tx)}" y2="${f(ty)}" stroke="${COLORS.leader}" stroke-width="1"/>`;
 }
 
 export function buildCompassSvg(points: PlotPoint[], title: string): PlotResult {
@@ -203,40 +258,39 @@ export function buildCompassSvg(points: PlotPoint[], title: string): PlotResult 
     );
   }
 
-  // Labels: dots count as obstacles. Highlighted label first so it gets the best spot.
+  // Labels: dots and axis text are obstacles. The highlighted label goes first,
+  // then dots in crowded areas, which have the fewest free spots.
   const taken: Box[] = [
     ...obstacles,
     ...dots.map((d) => ({ x1: d.x - d.r - 1, y1: d.y - d.r - 1, x2: d.x + d.r + 1, y2: d.y + d.r + 1 })),
   ];
-  const numbered: PlotResult['numbered'] = [];
-  const labelOrder = [...dots].reverse();
+  const crowding = (d: (typeof dots)[number]) =>
+    dots.filter((o) => o !== d && Math.hypot(o.x - d.x, o.y - d.y) < 60).length;
+  const labelOrder = [...dots].sort(
+    (a, b) => Number(b.highlight) - Number(a.highlight) || crowding(b) - crowding(a),
+  );
+
+  const leaders: string[] = [];
+  const labels: string[] = [];
   for (const d of labelOrder) {
-    const fullName = d.names.join(', ');
-    let text = d.names.map((n) => truncate(n, NAME_MAX)).join(', ');
-    let spot = placeLabel(text, d, d.r, taken);
-    if (!spot) {
-      text = String(numbered.length + 1);
-      spot = placeLabel(text, d, d.r, taken);
-      numbered.push({ number: numbered.length + 1, name: fullName });
-    }
-    if (!spot) {
-      // Nowhere clear even for a number: put it to the right anyway.
-      spot = { x: d.x + d.r + 4, y: d.y + LABEL_SIZE * 0.35, anchor: 'start', box: { x1: 0, y1: 0, x2: 0, y2: 0 } };
-    }
+    const text = d.names.join(', ');
+    const spot = placeLabel(text, d, d.r, taken, d.highlight);
     taken.push(spot.box);
-    out.push(
-      `<text x="${spot.x}" y="${spot.y}" font-size="${LABEL_SIZE}" font-weight="${d.highlight ? 'bold' : 'normal'}" fill="${COLORS.textPrimary}" text-anchor="${spot.anchor}" stroke="${COLORS.surface}" stroke-width="3" stroke-linejoin="round" paint-order="stroke">${escapeXml(text)}</text>`,
+    if (spot.dist > d.r + 4 + 1) leaders.push(leaderLine(d, spot.box));
+    labels.push(
+      `<text x="${spot.x.toFixed(1)}" y="${spot.y.toFixed(1)}" font-size="${LABEL_SIZE}" font-weight="${d.highlight ? 'bold' : 'normal'}" fill="${COLORS.textPrimary}" text-anchor="${spot.anchor}" stroke="${COLORS.surface}" stroke-width="3" stroke-linejoin="round" paint-order="stroke">${escapeXml(text)}</text>`,
     );
   }
+  out.push(...leaders, ...labels);
 
   out.push('</svg>');
-  return { svg: out.join('\n'), numbered };
+  return { svg: out.join('\n') };
 }
 
 export function renderPng(svg: string, width = WIDTH): Buffer {
   const resvg = new Resvg(svg, {
     fitTo: { mode: 'width', value: width },
-    font: { loadSystemFonts: true, defaultFontFamily: 'DejaVu Sans' },
+    font: { fontFiles: FONT_FILES, loadSystemFonts: true, defaultFontFamily: 'DejaVu Sans' },
   });
   return Buffer.from(resvg.render().asPng());
 }

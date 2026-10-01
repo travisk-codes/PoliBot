@@ -94,7 +94,8 @@ The bot creates a **Compass** tab with a header row on first use. You can view o
 - `src/compass/plot.ts` draws the chart as SVG and converts it to PNG with `@resvg/resvg-js`:
   - Quadrants use the familiar compass colors, softened.
   - Each person is a labeled dot, and the person who asked is highlighted in orange.
-  - Labels are placed so they don't overlap. People at the same spot share a label. In a crowded cluster, labels that can't fit become numbers, listed under the image.
+  - Every dot shows the person's full display name. Labels are placed so they don't overlap: when there's no room next to a dot, the label moves outward to the nearest free spot and a thin gray line connects it to its dot. People at the same spot share one label.
+  - Fonts are bundled in `assets/fonts/` (DejaVu Sans, plus Noto Emoji for emoji), so names with emoji and symbols render the same on any server. resvg can't draw color emoji, so emoji appear as black-and-white outlines. For Chinese, Japanese or Korean names, install a CJK font on the server (`apt install fonts-noto-cjk`).
 - `/compass plot` is public in the channel. Everything else replies privately.
 
 ### Personality

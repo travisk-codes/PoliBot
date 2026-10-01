@@ -1,7 +1,6 @@
 import {
   AttachmentBuilder,
   ChatInputCommandInteraction,
-  escapeMarkdown,
   MessageFlags,
   SlashCommandBuilder,
 } from 'discord.js';
@@ -119,15 +118,10 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
       }));
 
       const title = `Political compass · ${interaction.guild?.name ?? 'this server'}`;
-      const { svg, numbered } = buildCompassSvg(points, title);
+      const { svg } = buildCompassSvg(points, title);
       const file = new AttachmentBuilder(renderPng(svg), { name: 'political-compass.png' });
 
       const lines = [`Add yourself with \`/compass set\` (test: <${TEST_URL}>).`];
-      if (numbered.length > 0) {
-        lines.push(
-          `Numbered dots: ${numbered.map((n) => `**${n.number}** ${escapeMarkdown(n.name)}`).join(' · ')}`,
-        );
-      }
       await interaction.editReply({
         content: lines.join('\n'),
         files: [file],
