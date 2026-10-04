@@ -164,3 +164,21 @@ export function hasEnoughText(messages: Timed[]): boolean {
     messages.reduce((n, m) => n + m.content.length, 0) >= MIN_CHARS
   );
 }
+
+/**
+ * Identifies the set of collected messages without storing any text: the
+ * newest message ID plus the total count. A new message changes the ID; a
+ * deleted (or aged-out) one changes the count. Used to tell whether a cached
+ * profile or summary is still current.
+ */
+export function sourceKey(byChannel: Map<string, Array<{ id: string; createdTimestamp: number }>>): string {
+  let newest: { id: string; createdTimestamp: number } | undefined;
+  let count = 0;
+  for (const msgs of byChannel.values()) {
+    count += msgs.length;
+    for (const m of msgs) {
+      if (!newest || m.createdTimestamp > newest.createdTimestamp) newest = m;
+    }
+  }
+  return `${newest?.id ?? 'none'}:${count}`;
+}

@@ -17,6 +17,8 @@ export interface Profile {
   messageCount: number;
   channelCount?: number;
   sampleVersion?: number;
+  /** Identifies the messages it was built from (see `sourceKey`). */
+  sourceKey?: string;
   updatedAt: string;
 }
 
@@ -25,6 +27,8 @@ export interface SummaryEntry {
   messageCount: number;
   channelCount?: number;
   sampleVersion?: number;
+  /** Identifies the messages it was built from (see `sourceKey`). */
+  sourceKey?: string;
   updatedAt: string;
 }
 

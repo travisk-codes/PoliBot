@@ -110,6 +110,8 @@ MBTI, the Dark Triad, and clinical labels are deliberately left out.
 
 **Which channels** (`src/personality/channels.ts`): by default, only channels visible to `@everyone` are analyzed, so a public chart can't be built from mod-only or private channels. Admins can `exclude` public channels (memes, bot commands, venting) or `include` a non-public one. Including a non-public channel warns that charts and summaries from it are posted publicly. `/personality channels list` shows the current set to anyone. Threads and forum posts aren't included. Changing the set clears cached charts and summaries. These settings apply to both metrics and summaries.
 
+**Updates:** every `show` re-reads the person's messages, which only uses Discord's API. If they've posted or deleted anything since the saved chart or summary was made, the AI builds a new one; otherwise the saved one is reused. The check uses the newest message ID and the message count, never message text, so edits to old messages alone don't trigger a rebuild.
+
 **Sampling** (`src/personality/collect.ts`): up to 1,000 recent messages per channel are scanned, going back 90 days. From those, up to 400 of a person's messages (about 40k characters) are picked **round-robin across the channels they're active in**, so one busy channel can't dominate. They need at least 30 messages of 3+ words. Each message is tagged with its channel (`[#debate] …`), and the AI is told to look for tendencies that hold across contexts.
 
 **Scoring** (`src/personality/score.ts`): other people's names and mentions are anonymized. Then each channel's messages are split alternately into two halves, so both halves have the same channel mix. The AI scores each half on all 16 traits from −1 to 1, and the profile is the average of the two halves.
@@ -137,7 +139,7 @@ The AI writes 80–150 words on how the person comes across: tone, how they enga
 - no insults, diagnoses, or guesses about demographics or identity;
 - no word-for-word quotes.
 
-Any leftover participant aliases are replaced with "others" before posting. The result is posted publicly as an embed, with a footer saying how the subject can opt out. Summaries are cached for 7 days, per person and per channel.
+Any leftover participant aliases are replaced with "others" before posting. The result is posted publicly as an embed, with a footer saying how the subject can opt out. Summaries are saved per person and per channel.
 
 ## Privacy
 

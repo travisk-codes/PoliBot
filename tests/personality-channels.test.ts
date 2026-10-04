@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { ineligibleReason, resolveEligible, type ChannelInfo } from '../src/personality/channels.js';
-import { balancedSample, hasEnoughText, stratifiedHalves } from '../src/personality/collect.js';
+import { balancedSample, hasEnoughText, sourceKey, stratifiedHalves } from '../src/personality/collect.js';
 import { buildScoringInput } from '../src/personality/score.js';
 import { PersonalityStore, SAMPLE_VERSION } from '../src/personality/store.js';
 
@@ -162,5 +162,52 @@ describe('PersonalityStore channels', () => {
     const saved = JSON.parse(readFileSync(file, 'utf8'));
     expect(saved.g.profiles).toEqual({});
     expect(Object.keys(saved.g.optedIn).sort()).toEqual(['other', 'u']);
+  });
+});
+
+describe('sourceKey', () => {
+  const m = (id: string, t: number) => ({ id, createdTimestamp: t });
+  const base = () =>
+    new Map([
+      ['a', [m('1', 100), m('3', 300)]],
+      ['b', [m('2', 200)]],
+    ]);
+
+  it('is stable for the same messages', () => {
+    expect(sourceKey(base())).toBe(sourceKey(base()));
+    expect(sourceKey(base())).toBe('3:3');
+  });
+
+  it('changes when a newer message appears in any channel', () => {
+    const more = base();
+    more.get('b')!.push(m('4', 400));
+    expect(sourceKey(more)).toBe('4:4');
+  });
+
+  it('changes when a message is deleted or ages out', () => {
+    const fewer = base();
+    fewer.get('a')!.shift();
+    expect(sourceKey(fewer)).not.toBe(sourceKey(base()));
+  });
+
+  it('handles no messages', () => {
+    expect(sourceKey(new Map())).toBe('none:0');
+  });
+});
+
+describe('PersonalityStore sourceKey', () => {
+  it('keeps the source key on profiles and summaries', () => {
+    const store = new PersonalityStore(join(mkdtempSync(join(tmpdir(), 'pers-')), 'p.json'));
+    store.optIn('g', 'u');
+    store.summaryOptIn('g', 'u');
+    const profile = { scores: {}, halfA: {}, halfB: {}, messageCount: 40, sourceKey: '9:40', updatedAt: 'x' };
+    store.setProfile('g', 'u', profile);
+    store.setChannelProfile('g', 'u', 'c', { ...profile, sourceKey: '9:12' });
+    store.setSummary('g', 'u', { text: 't', messageCount: 40, sourceKey: '9:40', updatedAt: 'x' });
+    store.setSummary('g', 'u', { text: 't', messageCount: 12, sourceKey: '9:12', updatedAt: 'x' }, 'c');
+    expect(store.getProfile('g', 'u')?.sourceKey).toBe('9:40');
+    expect(store.getChannelProfile('g', 'u', 'c')?.sourceKey).toBe('9:12');
+    expect(store.getSummary('g', 'u')?.sourceKey).toBe('9:40');
+    expect(store.getSummary('g', 'u', 'c')?.sourceKey).toBe('9:12');
   });
 });

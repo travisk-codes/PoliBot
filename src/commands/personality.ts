@@ -21,6 +21,7 @@ import {
   collectMessages,
   hasEnoughText,
   MIN_MESSAGES,
+  sourceKey,
   stratifiedHalves,
 } from '../personality/collect.js';
 import { averageScores, scoreMessages } from '../personality/score.js';
@@ -29,7 +30,6 @@ import { getPersonalityStore, type Profile, type SummaryEntry } from '../persona
 import { SUMMARY_SAMPLE, summarizePerson } from '../personality/summary.js';
 import { getTrait, TRAIT_IDS } from '../personality/traits.js';
 
-const MAX_AGE_MS = 7 * 86_400_000;
 const SHOW_COOLDOWN_MS = 60_000;
 const LIST_MAX_CHANNELS = 60;
 const lastShow = new Map<string, number>();
@@ -95,10 +95,6 @@ function ephemeral(content: string) {
   return { content, flags: MessageFlags.Ephemeral } as const;
 }
 
-function isFresh<T extends { updatedAt: string }>(p: T | undefined): p is T {
-  return !!p && Date.now() - Date.parse(p.updatedAt) < MAX_AGE_MS;
-}
-
 async function collectFor(guild: Guild, userId: string, channel?: GuildTextBasedChannel) {
   const store = getPersonalityStore();
   const channels = channel ? [channel] : eligibleChannels(guild, store.getChannelSettings(guild.id));
@@ -129,11 +125,16 @@ async function buildProfile(byChannel: Map<string, Message[]>): Promise<Profile 
     halfB,
     messageCount: all.length,
     channelCount: sample.size,
+    sourceKey: sourceKey(byChannel),
     updatedAt: new Date().toISOString(),
   };
 }
 
-/** Cached or newly built profile, from all eligible channels or just one. */
+/**
+ * The profile for the person's current messages, from all eligible channels
+ * or just one. Messages are always re-read; the AI is only called again when
+ * they changed since the cached profile was built.
+ */
 async function freshProfile(
   guild: Guild,
   userId: string,
@@ -143,9 +144,10 @@ async function freshProfile(
   const cached = channel
     ? store.getChannelProfile(guild.id, userId, channel.id)
     : store.getProfile(guild.id, userId);
-  if (isFresh(cached)) return cached;
+  const byChannel = await collectFor(guild, userId, channel);
+  if (cached && cached.sourceKey === sourceKey(byChannel)) return cached;
 
-  const profile = await buildProfile(await collectFor(guild, userId, channel));
+  const profile = await buildProfile(byChannel);
   if (profile === 'not enough') return profile;
 
   if (channel) store.setChannelProfile(guild.id, userId, channel.id, profile);
@@ -155,7 +157,10 @@ async function freshProfile(
 
 // Summary
 
-/** Cached or newly written summary, from all eligible channels or just one. */
+/**
+ * The summary for the person's current messages, from all eligible channels
+ * or just one. Like `freshProfile`, it's only rewritten when they changed.
+ */
 async function freshSummary(
   guild: Guild,
   userId: string,
@@ -163,9 +168,11 @@ async function freshSummary(
 ): Promise<SummaryEntry | 'not enough'> {
   const store = getPersonalityStore();
   const cached = store.getSummary(guild.id, userId, channel?.id);
-  if (isFresh(cached)) return cached;
+  const byChannel = await collectFor(guild, userId, channel);
+  const key = sourceKey(byChannel);
+  if (cached && cached.sourceKey === key) return cached;
 
-  const sample = balancedSample(await collectFor(guild, userId, channel), SUMMARY_SAMPLE);
+  const sample = balancedSample(byChannel, SUMMARY_SAMPLE);
   const all = [...sample.values()].flat().sort((a, b) => a.createdTimestamp - b.createdTimestamp);
   if (!hasEnoughText(all)) return 'not enough';
 
@@ -173,6 +180,7 @@ async function freshSummary(
     text: await summarizePerson(anonymizedTexts(all)),
     messageCount: all.length,
     channelCount: sample.size,
+    sourceKey: key,
     updatedAt: new Date().toISOString(),
   };
   store.setSummary(guild.id, userId, entry, channel?.id);
