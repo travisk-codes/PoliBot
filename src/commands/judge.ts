@@ -1,6 +1,7 @@
 import {
   ChatInputCommandInteraction,
   MessageFlags,
+  type InteractionReplyOptions,
   PermissionFlagsBits,
   SlashCommandBuilder,
 } from 'discord.js';
@@ -46,6 +47,21 @@ export const data = new SlashCommandBuilder()
       .setMaxValue(MAX_MINUTES),
   );
 
+/**
+ * Posts `payload` as a new public message after a private deferred reply.
+ * The first follow-up after a deferred reply edits that deferred message
+ * (keeping it private), so the deferred reply is used up with a placeholder
+ * first, then the public follow-up is sent, then the placeholder is removed.
+ */
+export async function postPublicly(
+  interaction: Pick<ChatInputCommandInteraction, 'editReply' | 'followUp' | 'deleteReply'>,
+  payload: Omit<InteractionReplyOptions, 'flags' | 'allowedMentions'>,
+): Promise<void> {
+  await interaction.editReply('Posting the verdict…');
+  await interaction.followUp({ ...payload, allowedMentions: { parse: [] } });
+  await interaction.deleteReply().catch(() => {});
+}
+
 export async function execute(interaction: ChatInputCommandInteraction): Promise<void> {
   const channel = interaction.channel;
   if (!interaction.inGuild() || !channel || channel.isDMBased() || !channel.isTextBased()) {
@@ -83,7 +99,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
   const window = minutes ? `last ${formatDuration(minutes)}` : undefined;
 
   // Defer privately so "not enough to judge" stays private; the verdict itself
-  // is posted publicly as a follow-up.
+  // is posted publicly by postPublicly().
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
   try {
@@ -112,12 +128,10 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
       window,
     });
 
-    await interaction.followUp({
+    await postPublicly(interaction, {
       content: `Requested by ${interaction.user}${topic ? ` · topic: "${topic}"` : ''}`,
       embeds: [embed],
-      allowedMentions: { parse: [] },
     });
-    await interaction.deleteReply().catch(() => {});
   } catch (err) {
     console.error('judge failed:', err);
     lastUsed.delete(channel.id);
