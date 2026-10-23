@@ -151,8 +151,13 @@ Any leftover participant aliases are replaced with "others" before posting. The 
 The AI sees anonymized names (`User1`, `User2`, …) and evaluates each participant:
 - their position,
 - the evidence they gave (links, data, quotes, specific examples),
-- strengths and weaknesses, such as unsupported claims, logical errors, ignoring counterpoints, or personal attacks,
+- their biggest strength and biggest weakness, such as unsupported claims, logical errors, ignoring counterpoints, or personal attacks,
 - a 0–10 score.
+
+The verdict is kept short so it reads at a glance in a busy channel:
+- a headline and a 1–2 sentence explanation,
+- one line per person, at most 4 people,
+- at most 2 key factual points and 1 values point.
 
 It separates **factual or evidence questions**, where it says whose side is better supported, from **values or priorities**, where it gives each side's strongest point and declares no winner. The overall verdict is one of:
 - one person makes the better-supported case,
