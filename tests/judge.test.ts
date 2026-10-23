@@ -61,8 +61,8 @@ describe('parseJudgment', () => {
     const many = Array.from({ length: 9 }, () => ({ question: 'q', assessment: 'a', sides: 's', favors: null }));
     const j = parseJudgment(JSON.stringify({ ...reply, facts: many, values: many, verdict: { kind: 'win', summary: 's' } }), known)!;
     expect(j.verdict.kind).toBe('mixed');
-    expect(j.facts).toHaveLength(5);
-    expect(j.values).toHaveLength(3);
+    expect(j.facts).toHaveLength(2);
+    expect(j.values).toHaveLength(1);
   });
 
   it('returns null for unusable replies', () => {
@@ -79,8 +79,8 @@ describe('buildJudgmentEmbed', () => {
     const json = JSON.stringify(buildJudgmentEmbed(j, restore, { messageCount: 40, window: 'last 30 minutes' }).toJSON());
     expect(json).not.toMatch(/User\d/);
     expect(json).toContain('Alice makes the better-supported case');
-    expect(json).toContain('Alice: 8/10');
-    expect(json).toContain('(favors Alice)');
+    expect(json).toContain('**Alice** (8/10): Raising it costs jobs');
+    expect(json).toContain('📎 Linked a CBO report');
     expect(json).toContain('40 messages, last 30 minutes');
   });
 
@@ -94,9 +94,9 @@ describe('buildJudgmentEmbed', () => {
     expect(h('no_debate', null)).toMatch(/No real disagreement/);
   });
 
-  it('stays within Discord embed limits for very long content', () => {
-    const long = 'x'.repeat(5000);
-    const big: Judgment = {
+  it('stays short even when the model rambles', () => {
+    const long = 'word '.repeat(1000);
+    const rambling = JSON.stringify({
       topic: long,
       participants: Array.from({ length: 6 }, (_, i) => ({
         user: `User${(i % 3) + 1}`, position: long, evidence: long, strengths: long, weaknesses: long, score: 5,
@@ -104,18 +104,27 @@ describe('buildJudgmentEmbed', () => {
       facts: Array.from({ length: 5 }, () => ({ question: long, assessment: long, favors: 'User1' })),
       values: Array.from({ length: 3 }, () => ({ question: long, sides: long })),
       verdict: { kind: 'evidence', leader: 'User1', summary: long },
-    };
-    const e = buildJudgmentEmbed(big, restore, { messageCount: 500 }).toJSON();
-    expect(e.title!.length).toBeLessThanOrEqual(256);
-    expect(e.description!.length).toBeLessThanOrEqual(4096);
-    for (const f of e.fields ?? []) {
-      expect(f.name.length).toBeLessThanOrEqual(256);
-      expect(f.value.length).toBeLessThanOrEqual(1024);
-    }
-    const total =
-      e.title!.length + e.description!.length + e.footer!.text.length +
-      (e.fields ?? []).reduce((n, f) => n + f.name.length + f.value.length, 0);
-    expect(total).toBeLessThanOrEqual(6000);
+    });
+    const parsed = parseJudgment(rambling, known)!;
+    expect(parsed.participants.length).toBeLessThanOrEqual(4);
+    const e = buildJudgmentEmbed(parsed, restore, { messageCount: 500 }).toJSON();
+    expect(e.title!.length).toBeLessThanOrEqual(100);
+    expect(e.description!.length).toBeLessThanOrEqual(1500);
+    expect(e.fields ?? []).toHaveLength(0);
+  });
+
+  it('cuts long text at a word boundary and drops "none" evidence', () => {
+    const p = parseJudgment(
+      JSON.stringify({
+        ...reply,
+        participants: [{ user: 'User1', position: 'alpha beta '.repeat(40), evidence: 'None', strengths: 's', weaknesses: 'w', score: 5 }],
+      }),
+      known,
+    )!.participants[0];
+    expect(p.position.length).toBeLessThanOrEqual(120);
+    expect(p.position.endsWith('…')).toBe(true);
+    expect(p.position).toMatch(/(alpha|beta)…$/);
+    expect(p.evidence).toBe('');
   });
 });
 
